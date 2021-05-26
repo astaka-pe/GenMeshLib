@@ -2,11 +2,14 @@ import numpy as np
 import os
 import glob
 import torch
+import math
+import copy
 from functools import reduce
 
 class Mesh(object):
     def __init__(self, file):
         self.vs, self.faces = self.load_obj(file)
+        self.color = self.vn = None
         self.device = 'cpu'
         self.build_gemm()
 
@@ -31,18 +34,6 @@ class Mesh(object):
         faces = np.asarray(faces, dtype=int)
         assert np.logical_and(faces >= 0, faces < len(vs)).all()
         return vs, faces
-
-    def write_obj(self, file, vs, faces, vn=None, color=None):
-        with open(file, 'w+') as f:
-            for vi, v in enumerate(vs):
-                if color is None:
-                    f.write("v %f %f %f\n" % (v[0], v[1], v[2]))
-                else:
-                    f.write("v %f %f %f %f %f %f\n" % (v[0], v[1], v[2], color[vi][0], color[vi][1], color[vi][2]))
-                if vn is not None:
-                    f.write("vn %f %f %f\n" % (vn[vi, 0], vn[vi, 1], vn[vi, 2]))
-            for face in faces:
-                f.write("f %d %d %d\n" % (face[0] + 1, face[1] + 1, face[2] + 1))
     
     def build_gemm(self):
         self.ve = [[] for _ in self.vs]
@@ -102,3 +93,30 @@ class Mesh(object):
         self.max_nvs = max(self.nvs)
         self.nvs = torch.Tensor(self.nvs).to(self.device).float()
         self.edge2key = edge2key
+
+def write_obj(mesh, file):
+    vs = mesh.vs
+    vn = mesh.vn
+    faces = mesh.faces
+    color = mesh.color
+    with open(file, 'w+') as f:
+        for vi, v in enumerate(vs):
+            if color is None:
+                f.write("v %f %f %f\n" % (v[0], v[1], v[2]))
+            else:
+                f.write("v %f %f %f %f %f %f\n" % (v[0], v[1], v[2], color[vi][0], color[vi][1], color[vi][2]))
+            if vn is not None:
+                f.write("vn %f %f %f\n" % (vn[vi, 0], vn[vi, 1], vn[vi, 2]))
+        for face in faces:
+            f.write("f %d %d %d\n" % (face[0] + 1, face[1] + 1, face[2] + 1))
+
+def uv_mapping(mesh):
+    mesh2 = copy.deepcopy(mesh)
+    u = np.asarray([math.atan(y/(x + 1e-12)) for x, y, z in mesh.vs])
+    v = np.asarray([math.atan(math.sqrt(x*x + y*y)/(z + 1e-12)) for x, y, z in mesh.vs])
+    #z = np.asarray([math.sqrt(x**2 + y**2 + z**2) for x, y, z in mesh.vs])
+    z = np.zeros(len(mesh.vs))
+    mesh2.vs = np.asarray([u,v,z]).T
+    return mesh2
+    
+    
